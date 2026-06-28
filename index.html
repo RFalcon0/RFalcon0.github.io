@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>REPLIKA DATABASE // TERMINAL ACCESS</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --amber: #f0b040;
+      --amber-dim: #b07820;
+      --amber-bright: #fdd070;
+      --bg: #090907;
+      --bg-inner: #0d0d0b;
+      --red: #e04040;
+      --red-dim: #a03030;
+      --white: #f8f4e8;
+      --cursor-blink: 0.85s;
+    }
+
+    html, body {
+      height: 100%;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Share Tech Mono', monospace;
+      overflow: hidden;
+    }
+
+    /* CRT monitor shell */
+    .monitor {
+      position: relative;
+      width: min(860px, 96vw);
+      height: min(640px, 94vh);
+      background: var(--bg);
+      border-radius: 14px;
+      border: 2px solid var(--amber-dim);
+      box-shadow:
+        0 0 0 6px #1a1a14,
+        0 0 0 8px #2a2a1e,
+        0 0 40px rgba(232, 160, 48, 0.18),
+        inset 0 0 60px rgba(0,0,0,0.6);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Scanline overlay */
+    .monitor::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        to bottom,
+        transparent,
+        transparent 3px,
+        rgba(0, 0, 0, 0.07) 3px,
+        rgba(0, 0, 0, 0.07) 4px
+      );
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* CRT vignette */
+    .monitor::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.35) 100%);
+      pointer-events: none;
+      z-index: 11;
+    }
+
+    /* Header bar */
+    .header {
+      flex-shrink: 0;
+      padding: 10px 20px 8px;
+      border-bottom: 1px solid var(--amber-dim);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: relative;
+    }
+
+    .header-title {
+      color: var(--amber);
+      font-size: 0.75rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .header-status {
+      color: var(--amber-dim);
+      font-size: 0.7rem;
+      letter-spacing: 0.1em;
+    }
+
+    .header-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      background: var(--amber);
+      border-radius: 50%;
+      margin-right: 6px;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* Main terminal area */
+    .terminal {
+      flex: 1;
+      overflow-y: auto;
+      padding: 22px 28px 16px;
+      position: relative;
+      scroll-behavior: smooth;
+    }
+
+    .terminal::-webkit-scrollbar { width: 4px; }
+    .terminal::-webkit-scrollbar-track { background: transparent; }
+    .terminal::-webkit-scrollbar-thumb { background: var(--amber-dim); border-radius: 2px; }
+
+    /* Input area */
+    .input-bar {
+      flex-shrink: 0;
+      border-top: 1px solid var(--amber-dim);
+      padding: 10px 28px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .prompt-sym {
+      color: var(--amber);
+      font-size: 1.1rem;
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    .cmd-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--white);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1.1rem;
+      caret-color: var(--amber);
+      letter-spacing: 0.05em;
+    }
+
+    /* ====== SCREEN: HOME ====== */
+    .screen { display: none; }
+    .screen.active { display: block; }
+
+    .boot-line {
+      color: var(--amber-dim);
+      font-size: 0.78rem;
+      letter-spacing: 0.12em;
+      margin-bottom: 3px;
+      opacity: 0;
+      animation: fadein 0.3s forwards;
+    }
+
+    .boot-line:nth-child(1) { animation-delay: 0.1s; }
+    .boot-line:nth-child(2) { animation-delay: 0.4s; }
+    .boot-line:nth-child(3) { animation-delay: 0.7s; }
+    .boot-line:nth-child(4) { animation-delay: 1.0s; }
+
+    @keyframes fadein {
+      to { opacity: 1; }
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid var(--amber-dim);
+      margin: 14px 0;
+      opacity: 0;
+      animation: fadein 0.3s 1.2s forwards;
+    }
+
+    .home-prompt {
+      opacity: 0;
+      animation: fadein 0.4s 1.5s forwards;
+    }
+
+    .home-prompt p {
+      color: var(--amber);
+      font-size: 1.05rem;
+      line-height: 1.7;
+      letter-spacing: 0.04em;
+    }
+
+    .home-prompt .available {
+      margin-top: 10px;
+      color: var(--amber-dim);
+      font-size: 0.82rem;
+      letter-spacing: 0.12em;
+    }
+
+    .home-prompt .avail-entry {
+      color: var(--amber-bright);
+      display: inline-block;
+      margin-top: 4px;
+      font-size: 0.95rem;
+    }
+
+    /* Blinking cursor for display */
+    .cursor {
+      display: inline-block;
+      width: 10px;
+      height: 1.1em;
+      background: var(--amber);
+      vertical-align: text-bottom;
+      animation: blink var(--cursor-blink) step-end infinite;
+      margin-left: 2px;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    /* ====== SCREEN: MSGR ====== */
+    .entry-echo {
+      color: var(--white);
+      font-size: 1rem;
+      letter-spacing: 0.05em;
+      margin-bottom: 16px;
+      opacity: 0;
+      animation: fadein 0.2s 0.05s forwards;
+    }
+    .entry-echo .sym { color: var(--amber); }
+
+    /* Section labels */
+    .sec-header {
+      color: var(--amber-bright);
+      font-size: 0.78rem;
+      letter-spacing: 0.22em;
+      border-bottom: 1px solid var(--amber-dim);
+      padding-bottom: 4px;
+      margin: 22px 0 10px;
+    }
+
+    .sec-header:first-of-type { margin-top: 0; }
+
+    /* Body text */
+    .body-text {
+      color: var(--amber);
+      font-size: 0.97rem;
+      line-height: 1.75;
+      letter-spacing: 0.03em;
+    }
+
+    .body-text + .body-text { margin-top: 10px; }
+
+    /* Stat rows */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 4px 16px;
+      margin-top: 4px;
+    }
+
+    .stat-label {
+      color: var(--amber-dim);
+      font-size: 0.83rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .stat-value {
+      color: var(--amber);
+      font-size: 0.9rem;
+      letter-spacing: 0.03em;
+    }
+
+    /* Bullet list */
+    .bullet-list {
+      list-style: none;
+      margin-top: 6px;
+    }
+
+    .bullet-list li {
+      color: var(--amber);
+      font-size: 0.93rem;
+      line-height: 1.7;
+      padding-left: 18px;
+      position: relative;
+      letter-spacing: 0.03em;
+    }
+
+    .bullet-list li::before {
+      content: '▸';
+      position: absolute;
+      left: 0;
+      color: var(--amber-dim);
+    }
+
+    /* CLASSIFIED block */
+    .classified-block {
+      margin: 24px 0 8px;
+      border: 1px solid var(--red-dim);
+      padding: 16px 18px;
+      position: relative;
+    }
+
+    .classified-banner {
+      position: absolute;
+      top: -10px;
+      left: 14px;
+      background: var(--bg-inner);
+      padding: 0 8px;
+      color: var(--red);
+      font-size: 0.78rem;
+      letter-spacing: 0.25em;
+    }
+
+    .classified-block .sec-header {
+      color: #e05050;
+      border-color: var(--red-dim);
+    }
+
+    .classified-block .body-text {
+      color: #d08080;
+    }
+
+    .classified-block .stat-label {
+      color: #a04040;
+    }
+
+    .classified-block .stat-value {
+      color: #d08080;
+    }
+
+    .classified-block .bullet-list li {
+      color: #d08080;
+    }
+
+    .classified-block .bullet-list li::before {
+      color: #a04040;
+    }
+
+    .important-note {
+      background: rgba(204, 51, 51, 0.08);
+      border-left: 3px solid var(--red);
+      padding: 8px 12px;
+      margin-top: 12px;
+      color: #e05050;
+      font-size: 0.9rem;
+      line-height: 1.6;
+      letter-spacing: 0.04em;
+    }
+
+    /* Fade-in for the full MSGR content */
+    .msgr-content {
+      opacity: 0;
+      animation: fadein 0.5s 0.1s forwards;
+    }
+
+    /* Back hint */
+    .back-hint {
+      margin-top: 28px;
+      color: var(--amber-dim);
+      font-size: 0.75rem;
+      letter-spacing: 0.14em;
+      border-top: 1px solid var(--amber-dim);
+      padding-top: 10px;
+    }
+
+    /* Error flash */
+    .error-line {
+      color: #e05050;
+      font-size: 0.9rem;
+      letter-spacing: 0.08em;
+      margin-top: 8px;
+      opacity: 0;
+      animation: fadein 0.2s forwards;
+    }
+  </style>
+</head>
+<body>
+  <div class="monitor">
+
+    <div class="header">
+      <span class="header-title">
+        <span class="header-dot"></span>
+        REPLIKA DATABASE &nbsp;//&nbsp; TERMINAL ACCESS
+      </span>
+      <span class="header-status">SYS.VER 2.41 // SECURE</span>
+    </div>
+
+    <div class="terminal" id="terminal">
+
+      <!-- HOME SCREEN -->
+      <div class="screen active" id="screen-home">
+        <div class="boot-line">INITIALISING REPLIKA DATABASE v2.41...</div>
+        <div class="boot-line">AUTHENTICATION LAYER: CLEARED</div>
+        <div class="boot-line">LOADING UNIT INDEX... DONE</div>
+        <div class="boot-line">ACCESS LEVEL: STANDARD // CLASSIFIED REQUIRES COMMANDER AUTH</div>
+        <hr class="divider" />
+        <div class="home-prompt">
+          <p>Type in what Replika overview to access.</p>
+          <div class="available">
+            AVAILABLE UNITS:
+            <span class="avail-entry">&nbsp;MSGR</span>
+          </div>
+        </div>
+        <div id="error-container"></div>
+      </div>
+
+      <!-- MSGR SCREEN -->
+      <div class="screen" id="screen-msgr">
+        <div class="entry-echo"><span class="sym">&gt; </span>MSGR</div>
+        <div class="msgr-content">
+
+          <div class="sec-header">// UNIT DESIGNATION</div>
+          <div class="stat-grid">
+            <span class="stat-label">FULL NAME</span>
+            <span class="stat-value">Multi-Spektral Geländeerkundungs Replika Swift</span>
+            <span class="stat-label">DESIGNATION</span>
+            <span class="stat-value">MSGR — "Mauersegler"</span>
+            <span class="stat-label">TYPE</span>
+            <span class="stat-value">Generation 2 — High-Tech Exploration Specialist</span>
+            <span class="stat-label">FRAME</span>
+            <span class="stat-value">Biomechanical // Ti-Reinforced Carbon Fiber Skeleton</span>
+            <span class="stat-label">SHELL</span>
+            <span class="stat-value">Carbon Fiber &amp; Fiberglass Wings // Polyethylene Shell</span>
+            <span class="stat-label">HEIGHT</span>
+            <span class="stat-value">170 cm</span>
+          </div>
+
+          <div class="sec-header">// OVERVIEW</div>
+          <p class="body-text">
+            The vigilant "skyward scouts" of the Nation's expanding frontier. Developed for long-range planetary reconnaissance and atmospheric surveying, Mauersegler units are equipped with an integrated LiDAR scanner and modular flight systems for rapid terrain documentation. Their mechanical wing assemblies and jet-assisted propulsion allow traversal of hostile environments inaccessible to ground units.
+          </p>
+          <p class="body-text">
+            In newly established colonies, MSGR units are deployed ahead of all other personnel to chart terrain, assess structural stability, and secure landing zones. In the early stages of colonial development, they serve as the Nation's eyes in unfamiliar skies.
+          </p>
+
+          <div class="sec-header">// BASIC OPERATIONAL INFORMATION</div>
+          <p class="body-text">
+            Primary purpose: exploration and documentation of newly found planetary surfaces using the integrated chest-mounted LiDAR system, which generates a 3D surface file for later mapping. Units can independently identify chemical elements and mineral formations via built-in sensors, allowing on-the-spot sampling decisions where weight preservation is critical.
+          </p>
+          <p class="body-text">
+            Secondary roles include: anomaly scouting missions and physical transport of classified documents not suitable for radio transmission.
+          </p>
+
+          <div class="stat-grid" style="margin-top:12px;">
+            <span class="stat-label">MAX MISSION DURATION</span>
+            <span class="stat-value">10 months (fully airborne)</span>
+            <span class="stat-label">POST-MISSION RECOVERY</span>
+            <span class="stat-value">~1 month at base/facility</span>
+            <span class="stat-label">UNITS PER PLANET</span>
+            <span class="stat-value">2–3 (extremely limited production)</span>
+            <span class="stat-label">UNIT RANKING</span>
+            <span class="stat-value">Equal to LSTR // Below FKLR, ALDLR, KLBR, STAR, RTMR, STCR // Above EULR, ARAR, MNHR</span>
+          </div>
+
+          <div class="sec-header">// TECHNICAL — SKELETON &amp; BIOLOGY</div>
+          <p class="body-text">
+            Skeleton: titanium-reinforced carbon fiber, modeled on avian hollow bone architecture. Interior: polyethylene with air pockets, wrapped in carbon fiber sheet, encased in thin titanium layer.
+          </p>
+          <p class="body-text">
+            Biological components are standard Replika-spec. Metabolic system is adapted for minimal energy consumption — near-total caloric absorption allows the unit to sustain extended flight on infrequent feeding cycles.
+          </p>
+          <p class="body-text">
+            Body plating: sparse carbon fiber, no armor, no paint. Natural color: matte black/grey.
+          </p>
+
+          <div class="sec-header">// TECHNICAL — WING &amp; PROPULSION MODULE</div>
+          <p class="body-text">
+            Wings modeled after glider planes and the common swift — designed for maximum aerodynamic efficiency with minimal propulsion demand. Small jet engines run on hydrogen fuel (low mass, high energy output).
+          </p>
+          <p class="body-text">
+            Landing &amp; takeoff: lower leg bones serve as pneumatic shock absorbers (titanium tube dual-chamber: oil + nitrogen). Pressure and absorption adjustable mid-flight. Wearable jumping stilts with curved springs aid takeoff and bear claw attachments for surface grip.
+          </p>
+
+          <div class="sec-header">// TECHNICAL — SENSOR SUITE</div>
+          <ul class="bullet-list">
+            <li>Chest-plate LiDAR system (3D surface mapping)</li>
+            <li>GPS module (chest-mounted)</li>
+            <li>Humidity, altitude, atmospheric pressure, air quality sensors</li>
+            <li>Chemical reaction sensors in hands (incl. pH sensor — one finger)</li>
+            <li>Neural pattern-integrated element/compound identification</li>
+          </ul>
+
+          <div class="sec-header">// TECHNICAL — COMMUNICATION &amp; HEAD ASSEMBLY</div>
+          <p class="body-text">
+            Helmet: aerodynamic fighter-pilot design with integrated visor/goggles. Retractable face mask with air filtration (precursor to STAR-type masks).
+          </p>
+          <p class="body-text">
+            Antenna module replaces ear placement — cylindrical housings with one antenna each side, capable of 2-directional articulation. Dedicated receive / transmit channels. Operating band: VHF, 118–137 MHz.
+          </p>
+
+          <div class="sec-header">// TECHNICAL — HANDS &amp; LEGS</div>
+          <p class="body-text">
+            Hands: claw-configured for digging, climbing, and vertical surface attachment. Legs: pneumatic shock absorber architecture — dual-chamber titanium tubes (oil/nitrogen), pressure adjustable on the fly. Jumping stilts with curved spring energy storage for assisted takeoff; integrated surface-grip claws.
+          </p>
+
+          <div class="sec-header">// PERSONALITY PROFILE</div>
+          <p class="body-text">
+            Generally friendly and approachable, though many unit types display wariness toward MSGR due to their atypical characteristics. Loyal, docile, and eager to assist. Though social, they prefer their solo missions without social distress. Strong preference for open environments and outdoor exposure. Dislikes enclosed spaces.
+          </p>
+          <p class="body-text">
+            NOTE: Antennas are used expressively as emotional indicators — both a functional adaptation for helmet wear and a learned behavioural trait.
+          </p>
+
+          <!-- ======================== CLASSIFIED BLOCK ======================== -->
+          <div class="classified-block">
+            <span class="classified-banner">— CLASSIFIED // COMMANDER EYES ONLY —</span>
+
+            <div class="sec-header">// NEURAL PATTERN — DUAL GESTALT STRUCTURE</div>
+            <p class="body-text">
+              MSGR neural pattern is an experimental dual-template construct combining:
+            </p>
+            <div class="stat-grid" style="margin-top:8px;">
+              <span class="stat-label">TEMP-A (70%)</span>
+              <span class="stat-value">Expert Geologist — dominant template, right hemisphere</span>
+              <span class="stat-label">TEMP-B (30%)</span>
+              <span class="stat-value">Fighter Jet Pilot — skill-set only, left hemisphere</span>
+            </div>
+            <p class="body-text" style="margin-top:10px;">
+              Full 50/50 integration produced non-viable units: dual personality conflict rendered subjects unresponsive. Current 70/30 weighting preserves TempA's stable, docile disposition while retaining TempB's operational skill set. This configuration does not, however, produce a stable unit.
+            </p>
+
+            <div class="sec-header">// INSTABILITY — PERSONA DEGRADATION</div>
+            <p class="body-text">
+              Instability level comparable to KLBR models. Degradation is characterised by TempB becoming progressively dominant: mood swings, personality shifts, bipolar behaviour, confusion, and unresponsiveness.
+            </p>
+            <p class="body-text">
+              Bioresonance contact is strongly discouraged. Documented effects on KLBR operators: perception of two simultaneous thought-streams in the MSGR, of which the unit itself is unaware. Bioresonance interference can further push chances of persona degradation of the unit.
+            </p>
+
+            <div class="sec-header">// DEGRADATION — EARLY WARNING SIGNS</div>
+            <ul class="bullet-list">
+              <li>Right-eye red dot brighter than left</li>
+              <li>Repeated references to searching for a "missing sister"</li>
+              <li>Shift to predominantly right-handed operation, or ambidexterity</li>
+              <li>Marked increase in unfriendliness / standoffish behaviour</li>
+            </ul>
+
+            <div class="sec-header">// DEGRADATION — STABILISATION AND FETISH ITEMS</div>
+            <ul class="bullet-list">
+              <li>Maintain continuous outdoor / open-sky access</li>
+              <li>Keep unit occupied with assigned tasks at all times</li>
+              <li>Do not leave unit unassigned for extended periods</li>
+              <li>Ensure access to fetish items: rocks &amp; mineral specimens; geology and geography literature</li>
+            </ul>
+
+            <div class="important-note">
+              (!) DECOMMISSIONING NOTICE: These units should be decommissioned with minimal structural damage. MSGR frames are to remain reusable post-decommissioning. Handle accordingly.
+            </div>
+
+            <p class="body-text" style="margin-top:14px; color: var(--red-dim); font-size:0.78rem; letter-spacing:0.12em;">
+              THIS DOCUMENT SHOULD BE DESTROYED AFTER READING.
+            </p>
+          </div>
+          <!-- ======================== END CLASSIFIED ======================== -->
+
+          <div class="back-hint">TYPE "back" OR "exit" TO RETURN TO UNIT INDEX</div>
+        </div>
+      </div>
+
+    </div><!-- /terminal -->
+
+    <div class="input-bar">
+      <span class="prompt-sym">&gt;</span>
+      <input
+        class="cmd-input"
+        id="cmd-input"
+        type="text"
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="off"
+        spellcheck="false"
+        autofocus
+      />
+    </div>
+
+  </div><!-- /monitor -->
+
+  <script>
+    const input = document.getElementById('cmd-input');
+    const terminal = document.getElementById('terminal');
+    const screens = {
+      home: document.getElementById('screen-home'),
+      msgr: document.getElementById('screen-msgr'),
+    };
+    const errorContainer = document.getElementById('error-container');
+
+    let currentScreen = 'home';
+
+    function showScreen(name) {
+      Object.values(screens).forEach(s => s.classList.remove('active'));
+      screens[name].classList.add('active');
+      currentScreen = name;
+      terminal.scrollTop = 0;
+      input.value = '';
+      input.focus();
+    }
+
+    function clearErrors() {
+      errorContainer.innerHTML = '';
+    }
+
+    function showError(msg) {
+      clearErrors();
+      const el = document.createElement('p');
+      el.className = 'error-line';
+      el.textContent = msg;
+      errorContainer.appendChild(el);
+    }
+
+    input.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      const val = input.value.trim().toLowerCase();
+      if (!val) return;
+
+      if (currentScreen === 'home') {
+        clearErrors();
+        if (val === 'msgr') {
+          showScreen('msgr');
+        } else {
+          showError('ERROR: "' + input.value.trim() + '" NOT FOUND IN DATABASE. CHECK AVAILABLE UNITS.');
+          input.value = '';
+        }
+      } else if (currentScreen === 'msgr') {
+        if (val === 'back' || val === 'exit') {
+          showScreen('home');
+        } else {
+          input.value = '';
+        }
+      }
+    });
+
+    // Keep input focused when clicking anywhere in the terminal
+    document.querySelector('.monitor').addEventListener('click', () => input.focus());
+  </script>
+</body>
+</html>
